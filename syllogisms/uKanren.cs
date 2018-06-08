@@ -3,6 +3,11 @@ using System.Collections.Generic;
 using UnityEngine;
 
 namespace Syllogisms {
+
+    public class InvalidRelationException : System.Exception {
+        public InvalidRelationException(string message) : base(message) {}
+    }
+
     public class Stream {
         public Dictionary<string, string> replacements;
 
@@ -29,8 +34,13 @@ namespace Syllogisms {
 
         public Stream AddAssociation(string key, string value) {
             Stream output = new Stream(this.replacements);
-            output.replacements.Add(key, value);
-            return output;
+            string v2 = this.Walk(value);
+            if (v2 != key) {
+                output.replacements.Add(key, v2);
+                return output;
+            } else {
+                return null;
+            }
         }
     }
 
@@ -54,9 +64,15 @@ namespace Syllogisms {
           if (a_rei == b_rei) {
               yield return input;
           } else if (Stream.IsVariable(a_rei)) {
-              yield return input.AddAssociation(a_rei, b_rei);
+              Stream a = input.AddAssociation(a_rei, b_rei);
+              if (a != null) {
+                  yield return a;
+              }
           } else if (Stream.IsVariable(b_rei)) {
-              yield return input.AddAssociation(b_rei, a_rei);
+              Stream a = input.AddAssociation(b_rei, a_rei);
+              if (a != null) {
+                  yield return a;
+              }
           }
         }
     }
@@ -186,7 +202,6 @@ namespace Syllogisms {
         public void RemoveFact(string[] fact) {
             for (int i = 0; i < this.facts.Count; i++) {
                 if (!this.FactsMatch(fact, this.facts[i])) {
-                    Debug.Log("Removing fact at idx " + i);
                     this.facts.RemoveAt(i);
                     i--;
                 }
@@ -205,7 +220,27 @@ namespace Syllogisms {
             return new LazyRelationGoal(this, variables);
         }
 
+        private bool CheckRecursiveRules(Rule rule) {
+            foreach (Relation relation in rule.relations) {
+                if (relation == this) {
+                    return false;
+                } else {
+                    foreach (Rule rule2 in relation.rules) {
+                        bool check = this.CheckRecursiveRules(rule2);
+                        if (!check) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
         public void AddRule(Rule rule) {
+            // Check for recursive rules
+            if (!this.CheckRecursiveRules(rule)) {
+                throw new InvalidRelationException("Recursive rule found.");
+            }
             this.rules.Add(rule);
         }
 
@@ -222,6 +257,7 @@ namespace Syllogisms {
         private string salt;
         private string[] vars;
         private List<Goal> conditions = new List<Goal>();
+        public List<Relation> relations = new List<Relation>();
 
         public Rule(string[] vars, bool salt = true) {
             if (salt) {
@@ -234,6 +270,7 @@ namespace Syllogisms {
 
         public void AddCondition(Relation condition, string[] vars) {
             this.conditions.Add(condition.Query(this.SaltVars(vars)));
+            this.relations.Add(condition);
         }
 
         public Goal GetGoal(string[] variables) {

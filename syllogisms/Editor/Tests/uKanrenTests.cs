@@ -53,6 +53,15 @@ public class uKanrenTests {
     }
 
     [Test]
+    public void OccursTest() {
+        Stream stream = new Stream();
+        Stream a = stream.AddAssociation("._a", "._b");
+        Assert.IsNotNull(a);
+        Stream b = a.AddAssociation("._b", "._a");
+        Assert.IsNull(b);
+    }
+
+    [Test]
     public void ConjTests() {
         Stream stream = new Stream();
         Goal g = new Conj(new Eq("._a", "the letter a"), new Eq("._b", "the letter b"));
@@ -273,6 +282,39 @@ public class uKanrenTests {
             result++;
         }
         Assert.AreEqual(2, result);
+    }
+
+    [Test]
+    public void RelationRuleRecursiveTest() {
+        Relation r = new Relation();
+        Rule rule = new Rule(new string[]{"._x"});
+        rule.AddCondition(r, new string[]{"._y"});
+        try {
+            r.AddRule(rule);
+            Assert.Fail("Adding a recursive rule should raise an exception");
+        } catch (InvalidRelationException) {
+            //
+        }
+    }
+
+    [Test]
+    public void RuleTest() {
+        Relation r1 = new Relation();
+        r1.AddFact(new string[]{"test"});
+
+        Rule rule = new Rule(new string[]{"._a", "._b"});
+
+        rule.AddCondition(r1, new string[]{"._a"});
+
+        int results = 0;
+        foreach (Stream stream in rule.GetGoal(new string[]{"._a", "._b"}).Walk(new Stream())) {
+            string _a = stream.Walk("._a");
+            string _b = stream.Walk("._b");
+            Assert.AreEqual("test", _a);
+            Assert.IsTrue(Stream.IsVariable(_b));
+            results++;
+        }
+        Assert.AreEqual(1, results);
     }
 
     [Test]

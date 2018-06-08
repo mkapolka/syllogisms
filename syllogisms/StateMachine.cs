@@ -9,7 +9,7 @@ namespace Syllogisms {
         private Dictionary<string, Action> actions = new Dictionary<string, Action>();
         private Dictionary<string, Parser.Line[]> actionPayloads = new Dictionary<string, Parser.Line[]>();
         private Dictionary<string, System.Action<string[]>> callbacks = new Dictionary<string, System.Action<string[]>>();
-        private Dictionary<string, Exclusion> exclusions = new Dictionary<string, Exclusion>();
+        private Dictionary<string, List<Exclusion>> exclusions = new Dictionary<string, List<Exclusion>>();
 
         public class Exclusion {
             public string relationKey;
@@ -23,20 +23,21 @@ namespace Syllogisms {
         }
 
         public void Claim(Parser.Binding binding) {
-            Debug.Log("Claiming " + binding.key);
             Relation relation = this.GetRelation(binding.key);
 
             if (this.exclusions.ContainsKey(binding.key)) {
-                Debug.Log("Removing exclusion " + binding.key);
-                Exclusion exclusion = this.exclusions[binding.key];
-                this.RemoveExclusions(exclusion, binding);
+                foreach (Exclusion exclusion in this.exclusions[binding.key]) {
+                    this.RemoveExclusions(exclusion, binding);
+                }
             }
 
             string[] values = StateMachine.TokenToVariables(binding.tokens);
             relation.AddFact(values);
         }
 
-        public void RemoveExclusions(Exclusion exclusion, Parser.Binding binding) {
+        private void RemoveExclusions(Exclusion exclusion, Parser.Binding binding) {
+            // Remove any claims that would conflict with the input claim (given by binding)
+            // via the given exclusion.
             Relation relation = this.GetRelation(exclusion.relationKey);
             string[] vars = new string[binding.tokens.Length];
             for (int i = 0; i < vars.Length; i++) {
@@ -45,19 +46,12 @@ namespace Syllogisms {
                 } else {
                     vars[i] = "._" + i;
                 }
-                Debug.Log("Vars: " + i + ":" + vars[i]);
             }
-            Goal toRemove = new Conj(
-                exclusion.rule.GetGoal(vars),
-                relation.GetGoal(vars)
-            );
             List<string[]> varsToRemove = new List<string[]>();
             foreach (Stream stream in exclusion.rule.GetGoal(vars).Walk(new Stream())) {
-                Debug.Log("Streamy match!!");
                 string[] v = new string[vars.Length];
                 for (int i = 0; i < v.Length; i++) {
                     v[i] = stream.Walk(binding.tokens[i].value);
-                    Debug.Log("v" + i + ": " + v[i]);
                 }
                 varsToRemove.Add(v);
             }
@@ -108,13 +102,19 @@ namespace Syllogisms {
                 this.actionPayloads[payloadID] = line.children.ToArray();
             } else if (line.type == Parser.LineType.Exclusion) {
                 Exclusion exclusion = this.CreateExclusion(line);
-                Debug.Log("Adding exclusion to " + line.binding.key);
-                this.exclusions[line.binding.key] = exclusion;
+                this.AddExclusion(exclusion, line.binding.key);
             }
 
             foreach (Parser.Line child in line.children) {
                 this.LoadLine(child);
             }
+        }
+
+        private void AddExclusion(Exclusion exclusion, string key) {
+            if (!this.exclusions.ContainsKey(key)) {
+                this.exclusions[key] = new List<Exclusion>();
+            }
+            this.exclusions[key].Add(exclusion);
         }
 
         private Exclusion CreateExclusion(Parser.Line line) {
@@ -156,6 +156,10 @@ namespace Syllogisms {
 
         public void PerformAction(string query) {
             Parser.Binding binding = Parser.GetBinding(query);
+            this.PerformAction(binding);
+        }
+
+        public void PerformAction(Parser.Binding binding) {
             Action action = this.GetAction(binding);
             string[] vars = TokenToVariables(binding.tokens);
             string outKey = "._" + System.Guid.NewGuid().ToString();
@@ -165,11 +169,35 @@ namespace Syllogisms {
                 foreach (Parser.Line line in payload) {
                     if (line.type == Parser.LineType.Callback) {
                         string name = Regex.Match(line.content, "^([a-zA-Z0-9]+):").Groups[1].Value;
-                        string[] variables = this.WalkTokens(line.binding.tokens, stream);
-                        this.DoCallback(name, variables);
+                        string restOfLine = Regex.Replace(line.content, "^[a-zA-Z0-9]+: ?", "");
+                        restOfLine = restOfLine.Trim();
+                        if (name == "claim") {
+                            Parser.Binding reified = this.GetBindingWithStream(restOfLine, stream);
+                            this.Claim(reified);
+                        } else if (name == "action") {
+                            Parser.Binding reified = this.GetBindingWithStream(restOfLine, stream);
+                            this.PerformAction(reified);
+                        } else {
+                            string[] variables = this.WalkTokens(line.binding.tokens, stream);
+                            this.DoCallback(name, variables);
+                        }
                     }
                 }
+                return;
             }
+        }
+
+        private Parser.Binding GetBindingWithStream(string line, Stream stream) {
+            Parser.Binding initial = Parser.GetBinding(line);
+            Parser.Token[] tokens = new Parser.Token[initial.tokens.Length];
+            string[] walked = this.WalkTokens(initial.tokens, stream);
+            for (int i = 0; i < tokens.Length; i++) {
+                tokens[i] = new Parser.Token();
+                tokens[i].type = Stream.IsVariable(walked[i]) ? Parser.TokenType.Variable : Parser.TokenType.String;
+                tokens[i].value = walked[i];
+            }
+            initial.tokens = tokens;
+            return initial;
         }
 
         private string[] WalkTokens(Parser.Token[] tokens, Stream stream) {
@@ -210,15 +238,29 @@ namespace Syllogisms {
             return output;
         }
 
-        public bool IsTrue(string query) {
+        private IEnumerable<Stream> Query(string query) {
             Parser.Binding binding = Parser.GetBinding(query);
             Relation relation = this.relations[binding.key];
             string[] vars = TokenToVariables(binding.tokens);
             Stream stream = new Stream();
             foreach (Stream walkStream in relation.Query(vars).Walk(stream)) {
+                yield return walkStream;
+            }
+        }
+
+        public bool IsTrue(string query) {
+            foreach (Stream walkStream in this.Query(query)) {
                 return true;
             }
             return false;
+        }
+        
+        public string[] GetValues(string query) {
+            Parser.Binding binding = Parser.GetBinding(query);
+            foreach (Stream stream in this.Query(query)) {
+                return this.WalkTokens(binding.tokens, stream);
+            }
+            return null;
         }
     }
 }
