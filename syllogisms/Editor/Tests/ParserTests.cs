@@ -32,6 +32,18 @@ public class ParserTests {
     }
 
     [Test]
+    public void TestCharactersWithinBindings() {
+        Parser.Line line = Parser.ParseLine("+ a string is \"th'is, \"");
+        Assert.AreEqual("a string is %s", line.binding.key);
+        Assert.AreEqual(1, line.binding.tokens.Length);
+
+
+        line = Parser.ParseLine("+ \"The Hut\"'s description is \"You're outside a big hut.\"");
+        Assert.AreEqual("%s's description is %s", line.binding.key);
+        Assert.AreEqual(2, line.binding.tokens.Length);
+    }
+
+    [Test]
     public void TestParseFile() {
         Parser.Line[] lines = Parser.ParseFile(
             ":: someone is (something)\n" +

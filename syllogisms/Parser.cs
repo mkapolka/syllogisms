@@ -113,8 +113,8 @@ namespace Syllogisms {
         }
 
         public static Binding GetBinding(string query) {
-            string variablePattern = "\\([a-zA-Z0-9 ]*\\)";
-            string stringPattern = "\"[a-zA-Z0-9 ]*\"";
+            string variablePattern = "\\([^\\)]*\\)";
+            string stringPattern = "\"[^\"]*\"";
             string tokenPattern = variablePattern + "|" + stringPattern;
             Binding output = new Binding();
             output.key = Regex.Replace(
