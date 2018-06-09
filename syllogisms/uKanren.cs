@@ -3,44 +3,95 @@ using System.Collections.Generic;
 using UnityEngine;
 
 namespace Syllogisms {
-
     public class InvalidRelationException : System.Exception {
         public InvalidRelationException(string message) : base(message) {}
     }
 
-    public class Stream {
-        public Dictionary<string, string> replacements;
+    public struct Pair {
+        public string key;
+        public bool isVariable;
 
-        public Stream(Dictionary<string, string> oldReplacements) {
-            this.replacements = new Dictionary<string, string>(oldReplacements);
+        public Pair(string key, bool isVariable) {
+            this.key = key;
+            this.isVariable = isVariable;
+        }
+
+        public static Pair Fresh() {
+            return new Pair(System.Guid.NewGuid().ToString(), true);
+        }
+
+        public static Pair Variable(string key) {
+            return new Pair(key, true);
+        }
+
+        public static Pair Value(string v) {
+            return new Pair(v, false);
+        }
+
+        public static Pair[] Freshes(string[] names) {
+            Pair[] output = new Pair[names.Length];
+            for (int i = 0; i < names.Length; i++) {
+                output[i] = new Pair(names[i], true);
+            }
+            return output;
+        }
+
+        public static Pair[] Values(string[] values) {
+            Pair[] output = new Pair[values.Length];
+            for (int i = 0; i < values.Length; i++) {
+                output[i] = new Pair(values[i], false);
+            }
+            return output;
+        }
+    }
+
+    public class Stream {
+        public Dictionary<string, Pair> replacements;
+
+        public Stream(Dictionary<string, Pair> oldReplacements) {
+            this.replacements = new Dictionary<string, Pair>(oldReplacements);
         }
 
         public Stream() {
-            this.replacements = new Dictionary<string, string>();
+            this.replacements = new Dictionary<string, Pair>();
         }
 
-        public static bool IsVariable(string s) {
-            return s.StartsWith("._");
+        public static bool IsVariable(Pair s) {
+            return s.isVariable;
         }
 
         public string Walk(string var) {
+            Pair p = new Pair(var, true);
+            Pair result = this.Walk(p);
+            if (result.isVariable) {
+                return null;
+            } else {
+                return result.key;
+            }
+        }
+
+        public Pair Walk(Pair var) {
             if (Stream.IsVariable(var)) {
-                if (this.replacements.ContainsKey(var)) {
-                    return this.Walk(this.replacements[var]);
+                if (this.replacements.ContainsKey(var.key)) {
+                    return this.Walk(this.replacements[var.key]);
                 }
             }
             return var;
         }
 
         public Stream AddAssociation(string key, string value) {
+            Pair v = new Pair(value, false);
+            return this.AddAssociation(key, v);
+        }
+
+        public Stream AddAssociation(Pair key, Pair value) {
+            return this.AddAssociation(key.key, value);
+        }
+
+        public Stream AddAssociation(string key, Pair value) {
             Stream output = new Stream(this.replacements);
-            string v2 = this.Walk(value);
-            if (v2 != key) {
-                output.replacements.Add(key, v2);
-                return output;
-            } else {
-                return null;
-            }
+            output.replacements.Add(key, value);
+            return output;
         }
     }
 
@@ -49,21 +100,19 @@ namespace Syllogisms {
     }
 
     public class Eq : Goal {
-        private string a;
-        private string b;
+        private Pair a;
+        private Pair b;
 
-        public Eq(string a, string b) {
+        public Eq(Pair a, Pair b) {
             this.a = a;
             this.b = b;
         }
 
         public IEnumerable<Stream> Walk (Stream input) {
-          string a_rei = input.Walk(this.a);
-          string b_rei = input.Walk(this.b);
+          Pair a_rei = input.Walk(this.a);
+          Pair b_rei = input.Walk(this.b);
 
-          if (a_rei == b_rei) {
-              yield return input;
-          } else if (Stream.IsVariable(a_rei)) {
+          if (Stream.IsVariable(a_rei)) {
               Stream a = input.AddAssociation(a_rei, b_rei);
               if (a != null) {
                   yield return a;
@@ -73,6 +122,8 @@ namespace Syllogisms {
               if (a != null) {
                   yield return a;
               }
+          } else if (a_rei.key == b_rei.key) {
+              yield return input;
           }
         }
     }
@@ -87,7 +138,7 @@ namespace Syllogisms {
 
         public static Goal Conjs(Goal[] goals) {
             if (goals.Length == 0) {
-                return new Eq("true", "true");
+                return new Eq(Pair.Value("true"), Pair.Value("true"));
             }
 
             if (goals.Length == 1) {
@@ -122,7 +173,7 @@ namespace Syllogisms {
 
         public static Goal Disjs(Goal[] goals) {
             if (goals.Length == 0) {
-                return new Eq("true", "false");
+                return new Eq(Pair.Value("true"), Pair.Value("false"));
             }
 
             if (goals.Length == 1) {
@@ -162,8 +213,8 @@ namespace Syllogisms {
     public class Relation {
         private class LazyRelationGoal : Goal {
             private Relation relation;
-            private string[] variables;
-            public LazyRelationGoal(Relation relation, string[] variables) {
+            private Pair[] variables;
+            public LazyRelationGoal(Relation relation, Pair[] variables) {
                 this.relation = relation;
                 this.variables = variables;
             }
@@ -183,16 +234,21 @@ namespace Syllogisms {
             }
         }
 
-        private List<string[]> facts = new List<string[]>();
+        private List<Pair[]> facts = new List<Pair[]>();
         private List<Rule> rules = new List<Rule>();
 
-        public void AddFact(string[] fact) {
+        public void AddFact(Pair[] fact) {
             this.facts.Add(fact);
         }
 
-        private bool FactsMatch(string[] a, string[] b) {
+        public void AddFact(string[] fact) {
+            Pair[] pfact = Pair.Values(fact);
+            this.facts.Add(pfact);
+        }
+
+        private bool FactsMatch(string[] a, Pair[] b) {
             for (int i = 0; i < a.Length; i++) {
-                if (a[i] != b[i]) {
+                if (a[i] != b[i].key) {
                     return false;
                 }
             }
@@ -208,7 +264,7 @@ namespace Syllogisms {
             }
         }
 
-        private Goal GetLinewiseGoal(string[] variables, string[] fact) {
+        private Goal GetLinewiseGoal(Pair[] variables, Pair[] fact) {
             Eq[] eqs = new Eq[variables.Length];
             for (int i = 0; i < variables.Length; i++) {
                 eqs[i] = new Eq(variables[i], fact[i]);
@@ -216,7 +272,7 @@ namespace Syllogisms {
             return Conj.Conjs(eqs);
         }
 
-        public Goal Query(string[] variables) {
+        public Goal Query(Pair[] variables) {
             return new LazyRelationGoal(this, variables);
         }
 
@@ -244,7 +300,7 @@ namespace Syllogisms {
             this.rules.Add(rule);
         }
 
-        public Goal GetGoal(string[] variables) {
+        public Goal GetGoal(Pair[] variables) {
             Goal[] lineWise = new Goal[this.facts.Count];
             for (int i = 0; i < this.facts.Count; i++) {
                 lineWise[i] = this.GetLinewiseGoal(variables, this.facts[i]);
@@ -255,11 +311,11 @@ namespace Syllogisms {
 
     public class Rule {
         private string salt;
-        private string[] vars;
+        private Pair[] vars;
         private List<Goal> conditions = new List<Goal>();
         public List<Relation> relations = new List<Relation>();
 
-        public Rule(string[] vars, bool salt = true) {
+        public Rule(Pair[] vars, bool salt = true) {
             if (salt) {
                 this.salt = System.Guid.NewGuid().ToString();
             } else {
@@ -268,12 +324,12 @@ namespace Syllogisms {
             this.vars = this.SaltVars(vars);
         }
 
-        public void AddCondition(Relation condition, string[] vars) {
+        public void AddCondition(Relation condition, Pair[] vars) {
             this.conditions.Add(condition.Query(this.SaltVars(vars)));
             this.relations.Add(condition);
         }
 
-        public Goal GetGoal(string[] variables) {
+        public Goal GetGoal(Pair[] variables) {
             List<Goal> goals = new List<Goal>();
             for (int i = 0; i < variables.Length; i++) {
                 goals.Add(new Eq(variables[i], this.vars[i]));
@@ -286,12 +342,12 @@ namespace Syllogisms {
             return Conj.Conjs(goals.ToArray());
         }
 
-        private string[] SaltVars(string[] vars) {
-            string[] output = new string[vars.Length];
+        private Pair[] SaltVars(Pair[] vars) {
+            Pair[] output = new Pair[vars.Length];
             for (int i = 0; i < vars.Length; i++) {
-                string var = vars[i];
-                if (Stream.IsVariable(var)) {
-                    output[i] = "._" + this.salt + var.Substring(2);
+                Pair var = vars[i];
+                if (var.isVariable) {
+                    output[i] = new Pair(this.salt + var.key, true);
                 } else {
                     output[i] = var;
                 }
@@ -304,10 +360,11 @@ namespace Syllogisms {
         public List<Rule> rules = new List<Rule>();
         public List<string> payloads = new List<string>();
 
-        public Goal GetGoal(string[] vars, string outKey) {
+        public Goal GetGoal(Pair[] vars, Pair outKey) {
             Goal[] goals = new Goal[this.rules.Count];
             for (int i = 0; i < goals.Length; i++) {
-                goals[i] = new Conj(this.rules[i].GetGoal(vars), new Eq(outKey, this.payloads[i]));
+                Pair payloadPair = Pair.Value(this.payloads[i]);
+                goals[i] = new Conj(this.rules[i].GetGoal(vars), new Eq(outKey, payloadPair));
             }
             return Disj.Disjs(goals);
         }
@@ -318,9 +375,10 @@ namespace Syllogisms {
         }
 
         public string GetPayload(string[] vars) {
-            string uniqueString = "._" + System.Guid.NewGuid().ToString();
-            foreach (Stream walkStream in this.GetGoal(vars, uniqueString).Walk(new Stream())) {
-                return walkStream.Walk(uniqueString);
+            Pair[] freshes = Pair.Freshes(vars);
+            Pair key = Pair.Fresh();
+            foreach (Stream walkStream in this.GetGoal(freshes, key).Walk(new Stream())) {
+                return walkStream.Walk(key).key;
             }
             return null;
         }

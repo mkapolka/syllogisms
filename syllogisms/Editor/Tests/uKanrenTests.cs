@@ -8,266 +8,262 @@ using Syllogisms;
 
 public class uKanrenTests {
 
-    [Test]
-    public void TestsSimplePasses() {
-        Assert.AreEqual(1, 1);
-    }
-
-    [Test]
-    public void IsVariable() {
-        Assert.AreEqual(Stream.IsVariable("._a"), true);
-        Assert.AreEqual(Stream.IsVariable("._b"), true);
-        Assert.AreEqual(Stream.IsVariable("stringy"), false);
+    public static void AssertResults(string[,,] values, Goal goal, Stream stream = null) {
+        if (stream == null) {
+            stream = new Stream();
+        }
+        int results = 0;
+        foreach (Stream walkStream in goal.Walk(stream)) {
+            bool anyMatch = false;
+            for (int i = 0; i < values.GetLength(0); i++) {
+                bool allMatch = true;
+                for (int j = 0; j < values.GetLength(1); j++) {
+                    if (walkStream.Walk(values[i,j,0]) != values[i,j,1]) {
+                        allMatch = false;
+                    }
+                }
+                if (allMatch) {
+                    anyMatch = true;
+                }
+            }
+            if (!anyMatch) {
+                Assert.Fail("Walked value not found in expected results.");
+            }
+            results++;
+        }
+        Assert.AreEqual(values.GetLength(0), results);
     }
 
     [Test]
     public void StreamWalkTests() {
         Stream stream = new Stream();
 
-        // Unassigned variable
-        Assert.AreEqual(stream.Walk("._a"), "._a");
+        // Const value
+        Assert.AreEqual(Pair.Value("test"), stream.Walk(Pair.Value("test")));
 
         // Variable -> Value
-        Stream newStream = stream.AddAssociation("._a", "test");
-        Assert.AreEqual(newStream.Walk("._a"), "test");
+        Pair a = Pair.Fresh();
+        Stream newStream = stream.AddAssociation(a, Pair.Value("test"));
+        Assert.AreEqual(newStream.Walk(a.key), "test");
 
         // Variable -> Assigned variable
-        newStream = newStream.AddAssociation("._b", "._a");
-        Assert.AreEqual(newStream.Walk("._b"), "test");
+        Pair b = Pair.Fresh();
+        newStream = newStream.AddAssociation(b, a);
+        Assert.AreEqual(newStream.Walk(b.key), "test");
 
         // Variable -> Unassigned variable
-        newStream = stream.AddAssociation("._a", "._b");
-        Assert.AreEqual(newStream.Walk("._a"), "._b");
+        Stream newStream2 = new Stream();
+        newStream2 = stream.AddAssociation(a, b);
+        Assert.AreEqual(newStream2.Walk(a), b);
     }
 
     [Test]
     public void EqTests() {
-        Stream stream = new Stream();
-        Goal g = new Eq("._a", "the letter a");
-        int results = 0;
-        foreach (Stream walkedStream in g.Walk(stream)) {
-            results++;
-            Assert.AreEqual(walkedStream.Walk("._a"), "the letter a");
-        }
-        Assert.AreEqual(results, 1);
-    }
-
-    [Test]
-    public void OccursTest() {
-        Stream stream = new Stream();
-        Stream a = stream.AddAssociation("._a", "._b");
-        Assert.IsNotNull(a);
-        Stream b = a.AddAssociation("._b", "._a");
-        Assert.IsNull(b);
+        Pair a = Pair.Variable("a");
+        Goal g = new Eq(a, Pair.Value("the letter a"));
+        AssertResults(new string[,,] {
+            {
+                {"a", "the letter a"}
+            }
+        }, g);
     }
 
     [Test]
     public void ConjTests() {
-        Stream stream = new Stream();
-        Goal g = new Conj(new Eq("._a", "the letter a"), new Eq("._b", "the letter b"));
-        int results = 0;
-        foreach (Stream walkedStream in g.Walk(stream)) {
-            results++;
-            Assert.AreEqual("the letter a", walkedStream.Walk("._a"));
-            Assert.AreEqual("the letter b", walkedStream.Walk("._b"));
-        }
-        Assert.AreEqual(results, 1);
+        Pair a = Pair.Variable("a");
+        Pair b = Pair.Variable("b");
+        Goal g = new Conj(new Eq(a, Pair.Value("the letter a")), new Eq(b, Pair.Value("the letter b")));
+        AssertResults(new string[,,] {
+            {
+                {"a", "the letter a"},
+                {"b", "the letter b"}
+            }
+        }, g);
 
-        g = new Conj(new Eq("._a", "the letter a"), new Eq("._b", "._a"));
-        results = 0;
-        foreach (Stream walkedStream in g.Walk(stream)) {
-            results++;
-            Assert.AreEqual("the letter a", walkedStream.Walk("._a"));
-            Assert.AreEqual("the letter a", walkedStream.Walk("._b"));
-        }
-        Assert.AreEqual(results, 1);
+        g = new Conj(new Eq(a, Pair.Value("the letter a")), new Eq(b, a));
+        AssertResults(new string[,,] {
+            {
+                {"a", "the letter a"},
+                {"b", "the letter a"}
+            }
+        }, g);
     }
 
     [Test]
     public void EmptyConjTest() {
-        Stream stream = new Stream();
-        Goal g = new Conj(new Eq("._a", "1"), new Eq("._a", "2"));
-        int results = 0;
-        foreach (Stream walkedStream in g.Walk(stream)) {
-            results++;
-        }
-        Assert.AreEqual(0, results);
+        Pair a = Pair.Variable("a");
+        Goal g = new Conj(new Eq(a, Pair.Value("1")), new Eq(a, Pair.Value("2")));
+        AssertResults(new string[0,0,0], g);
 
         g = new Conj(
-            new Disj(new Eq("._a", "1"), new Eq("._a", "2")),
-            new Eq("._a", "3")
+            new Disj(new Eq(a, Pair.Value("1")), new Eq(a, Pair.Value("2"))),
+            new Eq(a, Pair.Value("3"))
         );
-        foreach (Stream walkedStream in g.Walk(stream)) {
-            results++;
-        }
-        Assert.AreEqual(0, results);
+        AssertResults(new string[0,0,0], g);
     }
 
     [Test]
     public void DisjTests() {
-        Stream stream = new Stream();
-        Goal g = new Disj(new Eq("._a", "the letter a"), new Eq("._a", "the letter b"));
-        int results = 0;
-        foreach (Stream walkedStream in g.Walk(stream)) {
-            Assert.Contains(walkedStream.Walk("._a"), new string[]{"the letter a", "the letter b"});
-            results++;
-        }
-        Assert.AreEqual(2, results);
+        Pair a = Pair.Variable("a");
+        Goal g = new Disj(new Eq(a, Pair.Value("the letter a")), new Eq(a, Pair.Value("the letter b")));
+        AssertResults(new string[,,] {
+            {
+                {"a", "the letter a"}
+            },
+            {
+                {"a", "the letter b"}
+            }
+        }, g);
     }
 
     [Test]
     public void TestConjDisj() {
-        Stream stream = new Stream();
+        Pair a = Pair.Variable("a");
+        Pair b = Pair.Variable("b");
         Goal g = new Disj(
-            new Conj(new Eq("._a", "the letter a"), new Eq("._b", "the letter b")),
-            new Eq("._a", "Another thing entirely")
+            new Conj(new Eq(a, Pair.Value("the letter a")), new Eq(b, Pair.Value("the letter b"))),
+            new Eq(a, Pair.Value("Another thing entirely"))
         );
-        int results = 0;
-        foreach (Stream walkedStream in g.Walk(stream)) {
-            string a = walkedStream.Walk("._a");
-            string b = walkedStream.Walk("._b");
-            Assert.Contains(a, new string[]{"the letter a", "Another thing entirely"});
-            Assert.Contains(b, new string[]{"the letter b", "._b"});
-            Assert.AreEqual(true, a == "the letter a" ? b == "the letter b" : b == "._b");
-            results++;
-        }
-        Assert.AreEqual(2, results);
+        AssertResults(new string[,,] {
+            {
+                {"a", "the letter a"},
+                {"b", "the letter b"}
+            },
+            {
+                {"a", "Another thing entirely"},
+                {"b", null}
+            }
+        }, g);
     }
 
     [Test]
     public void RelationTests() {
-        Stream stream = new Stream();
         Relation r = new Relation();
         r.AddFact(new string[]{"hello"});
-        int results = 0;
-        foreach (Stream walkedStream in r.GetGoal(new string[]{"._a"}).Walk(stream)) {
-            Assert.AreEqual("hello", walkedStream.Walk("._a"));
-            results++;
-        }
-        Assert.AreEqual(1, results);
+        AssertResults(new string[,,] {
+            {
+                {"a", "hello"}
+            }
+        }, r.GetGoal(new Pair[]{Pair.Variable("a")}));
 
         r.AddFact(new string[]{"dumbo"});
-        results = 0;
-        foreach (Stream walkedStream in r.GetGoal(new string[]{"._a"}).Walk(stream)) {
-            Assert.Contains(walkedStream.Walk("._a"), new string[]{"hello", "dumbo"});
-            results++;
-        }
+        AssertResults(new string[,,] {
+            {
+                {"a", "hello"}
+            },
+            {
+                {"a", "dumbo"}
+            }
+        }, r.GetGoal(new Pair[]{Pair.Variable("a")}));
     }
 
     [Test]
     public void RelationMultiVariableTests() {
-        Stream stream = new Stream();
         Relation r = new Relation();
         r.AddFact(new string[]{"ms", "sappy"});
         r.AddFact(new string[]{"mr", "happy"});
-        int results = 0;
-        foreach (Stream walkedStream in r.GetGoal(new string[]{"._a", "._b"}).Walk(stream)) {
-            results++;
-            string _a = walkedStream.Walk("._a");
-            if (_a == "ms") {
-                Assert.AreEqual("sappy", walkedStream.Walk("._b"));
-            } else if (_a == "mr") {
-                Assert.AreEqual("happy", walkedStream.Walk("._b"));
-            } else {
-                Assert.AreEqual(false, true);
+        AssertResults(new string[,,] {
+            {
+                {"a", "ms"},
+                {"b", "sappy"}
+            },
+            {
+                {"a", "mr"},
+                {"b", "happy"}
             }
-        }
-        Assert.AreEqual(2, results);
+        }, r.GetGoal(new Pair[]{Pair.Variable("a"), Pair.Variable("b")}));
     }
 
     [Test]
     public void RelationRuleAssocTest() {
-        Stream stream = new Stream();
         // r is true wherever r2 is true
         Relation r = new Relation();
         Relation r2 = new Relation();
-        Rule rule = new Rule(new string[]{"._a"});
-        rule.AddCondition(r2, new string[]{"._a"});
+        Pair a = Pair.Variable("a");
+        Rule rule = new Rule(new Pair[]{a});
+        rule.AddCondition(r2, new Pair[]{a});
         r.AddRule(rule);
 
         r2.AddFact(new string[]{"test"});
-        foreach (Stream walkedStream in r.Query(new string[]{"._a"}).Walk(stream)) {
-            string _a = walkedStream.Walk("._a");
-            Assert.AreEqual("test", _a);
-        }
+
+        AssertResults(new string[,,] {
+            {
+                {"a", "test"}
+            }
+        }, r.Query(new Pair[]{Pair.Variable("a")}));
 
         r2.AddFact(new string[]{"test 2"});
-        int results = 0;
-        foreach (Stream walkedStream in r.Query(new string[]{"._a"}).Walk(stream)) {
-            string _a = walkedStream.Walk("._a");
-            Assert.Contains(_a, new string[]{"test", "test 2"});
-            results++;
-        }
-        Assert.AreEqual(2, results);
+        AssertResults(new string[,,] {
+            {
+                {"a", "test"}
+            },
+            {
+                {"a", "test 2"}
+            }
+        }, r.Query(new Pair[]{Pair.Variable("a")}));
     }
 
     [Test]
     public void RelationRuleFlippyTest() {
-        Stream stream = new Stream();
         // r(x, y) is true wherever r2(y, x) is true
         Relation r = new Relation();
         Relation r2 = new Relation();
-        Rule rule = new Rule(new string[]{"._x", "._y"});
-        rule.AddCondition(r2, new string[]{"._y", "._x"});
+        Pair[] norm_args = new Pair[]{Pair.Variable("x"), Pair.Variable("y")};
+        Pair[] flip_args = new Pair[]{Pair.Variable("y"), Pair.Variable("x")};
+        Rule rule = new Rule(norm_args);
+        rule.AddCondition(r2, flip_args);
         r.AddRule(rule);
 
         r2.AddFact(new string[]{"y1", "x1"});
-        int results = 0;
-        foreach (Stream walkedStream in r.Query(new string[]{"._a", "._b"}).Walk(stream)) {
-            string _x = walkedStream.Walk("._a");
-            string _y = walkedStream.Walk("._b");
-            Assert.AreEqual("x1", _x);
-            Assert.AreEqual("y1", _y);
-            results++;
-        }
-        Assert.AreEqual(1, results);
+        AssertResults(new string[,,] {
+            {
+                {"x", "x1"},
+                {"y", "y1"}
+            }
+        }, r.Query(norm_args));
     }
 
     [Test]
     public void RelationRuleComboTest() {
-        Stream stream = new Stream();
         // r(x) is true if r2(x) and r3(x) are true
         Relation r = new Relation();
         Relation r2 = new Relation();
         Relation r3 = new Relation();
-        Rule rule = new Rule(new string[]{"._x"});
-        rule.AddCondition(r2, new string[]{"._x"});
-        rule.AddCondition(r3, new string[]{"._x"});
+        Pair[] args = new Pair[]{Pair.Variable("x")};
+        Rule rule = new Rule(args);
+        rule.AddCondition(r2, args);
+        rule.AddCondition(r3, args);
 
         r.AddRule(rule);
 
         r2.AddFact(new string[]{"testy"});
         r3.AddFact(new string[]{"problemo"});
 
-        // no value is shared between r2 and r3
-        foreach (Stream walkedStream in r.Query(new string[]{"._a"}).Walk(stream)) {
-            Assert.AreEqual(false, true);
-        }
+        AssertResults(new string[0,0,0], r.Query(args));
 
         // add "testy" to r3 and try again
         r3.AddFact(new string[]{"testy"});
-        int results = 0;
-        foreach (Stream walkedStream in r.Query(new string[]{"._a"}).Walk(stream)) {
-            string _a = walkedStream.Walk("._a");
-            Assert.AreEqual("testy", _a);
-            results++;
-        }
-        Assert.AreEqual(1, results);
+        AssertResults(new string[,,] {
+            {
+                {"x", "testy"}
+            }
+        }, r.Query(args));
     }
 
     [Test]
     public void RelationRuleMultiOptionTest() {
-        Stream stream = new Stream();
         Relation r = new Relation();
         Relation r2 = new Relation();
         Relation r3 = new Relation();
 
         // r(x) is true if either r2(x) or r3(x)
-        Rule rule = new Rule(new string[]{"._x"});
-        rule.AddCondition(r2, new string[]{"._x"});
+        Pair[] args1 = new Pair[]{Pair.Fresh()};
+        Rule rule = new Rule(args1);
+        rule.AddCondition(r2, args1);
 
-        Rule rule2 = new Rule(new string[]{"._y"});
-        rule2.AddCondition(r3, new string[]{"._y"});
+        Pair[] args2 = new Pair[]{Pair.Fresh()};
+        Rule rule2 = new Rule(args2);
+        rule2.AddCondition(r3, args2);
 
         r.AddRule(rule);
         r.AddRule(rule2);
@@ -275,20 +271,22 @@ public class uKanrenTests {
         r2.AddFact(new string[]{"r2 testy"});
         r3.AddFact(new string[]{"r3 testy"});
 
-        int result = 0;
-        foreach (Stream walkStream in r.Query(new string[]{"._a"}).Walk(stream)) {
-            string _a = walkStream.Walk("._a");
-            Assert.Contains(_a, new string[]{"r2 testy", "r3 testy"});
-            result++;
-        }
-        Assert.AreEqual(2, result);
+        AssertResults(new string[,,] {
+            {
+                {"a", "r2 testy"}
+            },
+            {
+                {"a", "r3 testy"}
+            }
+        }, r.Query(new Pair[]{Pair.Variable("a")}));
     }
 
     [Test]
     public void RelationRuleRecursiveTest() {
         Relation r = new Relation();
-        Rule rule = new Rule(new string[]{"._x"});
-        rule.AddCondition(r, new string[]{"._y"});
+        Pair[] args = new Pair[]{Pair.Fresh()};
+        Rule rule = new Rule(args);
+        rule.AddCondition(r, args);
         try {
             r.AddRule(rule);
             Assert.Fail("Adding a recursive rule should raise an exception");
@@ -302,22 +300,20 @@ public class uKanrenTests {
         Relation r1 = new Relation();
         r1.AddFact(new string[]{"test"});
 
-        Rule rule = new Rule(new string[]{"._a", "._b"});
+        Pair[] args = new Pair[]{Pair.Variable("a"), Pair.Variable("b")};
+        Rule rule = new Rule(args);
 
-        rule.AddCondition(r1, new string[]{"._a"});
+        rule.AddCondition(r1, new Pair[]{Pair.Variable("a")});
 
-        int results = 0;
-        foreach (Stream stream in rule.GetGoal(new string[]{"._a", "._b"}).Walk(new Stream())) {
-            string _a = stream.Walk("._a");
-            string _b = stream.Walk("._b");
-            Assert.AreEqual("test", _a);
-            Assert.IsTrue(Stream.IsVariable(_b));
-            results++;
-        }
-        Assert.AreEqual(1, results);
+        AssertResults(new string[,,] {
+            {
+                {"a", "test"},
+                {"b", null}
+            }
+        }, rule.GetGoal(new Pair[]{Pair.Variable("a"), Pair.Variable("b")}));
     }
 
-    [Test]
+    /*[Test]
     public void ActionTest() {
         // Action with no conditions
         Action action = new Action();
@@ -418,5 +414,5 @@ public class uKanrenTests {
         action.AddPayload(rule, "test A");
 
         Assert.AreEqual("test A", action.GetPayload(new string[0]));
-    }
+    }*/
 }

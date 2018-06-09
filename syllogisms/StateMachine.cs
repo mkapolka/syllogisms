@@ -31,7 +31,7 @@ namespace Syllogisms {
                 }
             }
 
-            string[] values = StateMachine.TokenToVariables(binding.tokens);
+            Pair[] values = StateMachine.TokenToPairs(binding.tokens);
             relation.AddFact(values);
         }
 
@@ -39,12 +39,12 @@ namespace Syllogisms {
             // Remove any claims that would conflict with the input claim (given by binding)
             // via the given exclusion.
             Relation relation = this.GetRelation(exclusion.relationKey);
-            string[] vars = new string[binding.tokens.Length];
+            Pair[] vars = new Pair[binding.tokens.Length];
             for (int i = 0; i < vars.Length; i++) {
                 if (exclusion.boundVars[i]) {
-                    vars[i] = binding.tokens[i].value;
+                    vars[i] = Pair.Value(binding.tokens[i].value);
                 } else {
-                    vars[i] = "._" + i;
+                    Pair.Fresh();
                 }
             }
             List<string[]> varsToRemove = new List<string[]>();
@@ -89,13 +89,13 @@ namespace Syllogisms {
                     this.Claim(line.binding);
                 } else { 
                     Relation claimRelation = this.GetRelation(line.binding);
-                    string[] vars = TokenToVariables(line.binding.tokens);
+                    Pair[] vars = TokenToPairs(line.binding.tokens);
                     Rule rule = this.WalkRule(line, vars);
                     claimRelation.AddRule(rule);
                 }
             } else if (line.type == Parser.LineType.Action) {
                 Action action = this.GetAction(line.binding);
-                string[] vars = TokenToVariables(line.binding.tokens);
+                Pair[] vars = TokenToPairs(line.binding.tokens);
                 Rule rule = this.WalkRule(line, vars, false);
                 string payloadID = System.Guid.NewGuid().ToString();
                 action.AddPayload(rule, payloadID);
@@ -122,7 +122,7 @@ namespace Syllogisms {
             exclusion.relationKey = line.binding.key;
             bool[] boundVars = new bool[line.binding.tokens.Length];
 
-            string[] vars = TokenToVariables(line.binding.tokens);
+            Pair[] vars = TokenToPairs(line.binding.tokens);
             Rule rule = this.WalkRule(line, vars, false);
             exclusion.rule = rule;
 
@@ -141,13 +141,13 @@ namespace Syllogisms {
             return exclusion;
         }
 
-        private Rule WalkRule(Parser.Line line, string[] vars, bool salt = true) {
+        private Rule WalkRule(Parser.Line line, Pair[] vars, bool salt = true) {
             Rule rule = new Rule(vars, salt);
             
             Parser.Line parent = line.parent;
             while (parent != null) {
                 Relation condRelation = this.GetRelation(parent.binding);
-                string[] condVars = TokenToVariables(parent.binding.tokens);
+                Pair[] condVars = TokenToPairs(parent.binding.tokens);
                 rule.AddCondition(condRelation, condVars);
                 parent = parent.parent;
             }
@@ -161,10 +161,10 @@ namespace Syllogisms {
 
         public void PerformAction(Parser.Binding binding) {
             Action action = this.GetAction(binding);
-            string[] vars = TokenToVariables(binding.tokens);
-            string outKey = "._" + System.Guid.NewGuid().ToString();
+            Pair[] vars = TokenToPairs(binding.tokens);
+            Pair outKey = Pair.Fresh();
             foreach (Stream stream in action.GetGoal(vars, outKey).Walk(new Stream())) {
-                string payloadKey = stream.Walk(outKey);
+                string payloadKey = stream.Walk(outKey).key;
                 Parser.Line[] payload = this.actionPayloads[payloadKey];
                 foreach (Parser.Line line in payload) {
                     if (line.type == Parser.LineType.Callback) {
@@ -193,7 +193,7 @@ namespace Syllogisms {
             string[] walked = this.WalkTokens(initial.tokens, stream);
             for (int i = 0; i < tokens.Length; i++) {
                 tokens[i] = new Parser.Token();
-                tokens[i].type = Stream.IsVariable(walked[i]) ? Parser.TokenType.Variable : Parser.TokenType.String;
+                tokens[i].type = walked[i] == null ? Parser.TokenType.Variable : Parser.TokenType.String;
                 tokens[i].value = walked[i];
             }
             initial.tokens = tokens;
@@ -204,8 +204,11 @@ namespace Syllogisms {
             string[] output = new string[tokens.Length];
             for (int i = 0; i < tokens.Length; i++) {
                 Parser.Token token = tokens[i];
-                string tokenValue = token.type == Parser.TokenType.Variable ? "._" + token.value : token.value;
-                output[i] = stream.Walk(tokenValue);
+                string tokenValue = token.value;
+                if (token.type == Parser.TokenType.Variable) {
+                    tokenValue = stream.Walk(token.value);
+                }
+                output[i] = tokenValue;
             }
             return output;
         }
@@ -225,14 +228,14 @@ namespace Syllogisms {
             }
         }
 
-        private static string[] TokenToVariables(Parser.Token[] tokens) {
-            string[] output = new string[tokens.Length];
+        private static Pair[] TokenToPairs(Parser.Token[] tokens) {
+            Pair[] output = new Pair[tokens.Length];
             for (int i = 0; i < output.Length; i++) {
                 Parser.Token token = tokens[i];
                 if (token.type == Parser.TokenType.Variable) {
-                    output[i] = "._" + token.value;
+                    output[i] = Pair.Variable(token.value);
                 } else {
-                    output[i] = token.value;
+                    output[i] = Pair.Value(token.value);
                 }
             }
             return output;
@@ -241,7 +244,7 @@ namespace Syllogisms {
         private IEnumerable<Stream> Query(string query) {
             Parser.Binding binding = Parser.GetBinding(query);
             Relation relation = this.relations[binding.key];
-            string[] vars = TokenToVariables(binding.tokens);
+            Pair[] vars = TokenToPairs(binding.tokens);
             Stream stream = new Stream();
             foreach (Stream walkStream in relation.Query(vars).Walk(stream)) {
                 yield return walkStream;
