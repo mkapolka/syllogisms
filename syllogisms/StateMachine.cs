@@ -44,14 +44,18 @@ namespace Syllogisms {
                 if (exclusion.boundVars[i]) {
                     vars[i] = Pair.Value(binding.tokens[i].value);
                 } else {
-                    Pair.Fresh();
+                    vars[i] = Pair.Fresh();
                 }
             }
+            if (!exclusion.rule.IsTrue(vars)) {
+                return;
+            }
+
             List<string[]> varsToRemove = new List<string[]>();
-            foreach (Stream stream in exclusion.rule.GetGoal(vars).Walk(new Stream())) {
+            foreach (Stream stream in relation.Query(vars, false).Walk(new Stream())) {
                 string[] v = new string[vars.Length];
                 for (int i = 0; i < v.Length; i++) {
-                    v[i] = stream.Walk(binding.tokens[i].value);
+                    v[i] = stream.Walk(vars[i]).key;
                 }
                 varsToRemove.Add(v);
             }

@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System.Linq;
 
 namespace Syllogisms {
     public class InvalidRelationException : System.Exception {
@@ -93,10 +94,66 @@ namespace Syllogisms {
             output.replacements.Add(key, value);
             return output;
         }
+
+        private void AddAssociationInPlace(string key, Pair value) {
+            this.replacements.Add(key, value);
+        }
+
+        public Stream AddAssociations(Pair[] variables, Pair[] values) {
+            Stream output = new Stream(this.replacements);
+            for (int i = 0; i < variables.Length; i++) {
+                if (variables[i].isVariable) {
+                    output.replacements.Add(variables[i].key, values[i]);
+                }
+            }
+            return output;
+        }
+
+        public Stream AddAssociationsSafe(Pair[] variables, Pair[] values) {
+            bool willUnify = true;
+            Pair[] walkedVars = new Pair[variables.Length];
+            Pair[] walkedVals = new Pair[values.Length];
+            for (int i = 0; i < variables.Length; i++) {
+                Pair a = this.Walk(variables[i]);
+                Pair b = this.Walk(values[i]);
+                if (a.isVariable) {
+                    walkedVars[i] = a;
+                    walkedVals[i] = b;
+                } else if (b.isVariable) {
+                    walkedVars[i] = b;
+                    walkedVals[i] = a;
+                } else if (a.key != b.key) {
+                    willUnify = false;
+                    break;
+                }
+            }
+            if (willUnify) {
+                return this.AddAssociations(walkedVars, walkedVals);
+            } else {
+                return null;
+            }
+        }
     }
 
     public interface Goal {
         IEnumerable<Stream> Walk (Stream input);
+    }
+
+    public class Eqs : Goal {
+        public Pair[] a;
+        public Pair[] b;
+
+        public Eqs(Pair[] a, Pair[] b) {
+            this.a = a;
+            this.b = b;
+        }
+
+        public IEnumerable<Stream> Walk(Stream input) {
+            Stream output = input.AddAssociationsSafe(this.a, this.b);
+            if (output != null) {
+                yield return output;
+            }
+        }
     }
 
     public class Eq : Goal {
@@ -113,18 +170,23 @@ namespace Syllogisms {
           Pair b_rei = input.Walk(this.b);
 
           if (Stream.IsVariable(a_rei)) {
-              Stream a = input.AddAssociation(a_rei, b_rei);
-              if (a != null) {
-                  yield return a;
-              }
+              yield return input.AddAssociation(a_rei, b_rei);
           } else if (Stream.IsVariable(b_rei)) {
-              Stream a = input.AddAssociation(b_rei, a_rei);
-              if (a != null) {
-                  yield return a;
-              }
+              yield return input.AddAssociation(b_rei, a_rei);
           } else if (a_rei.key == b_rei.key) {
               yield return input;
           }
+        }
+    }
+
+    public class Conjs : Goal {
+        public Goal[] goals;
+        public Conjs(Goal[] goals) {
+            this.goals = goals;
+        }
+
+        public IEnumerable<Stream> Walk(Stream input) {
+            yield return null;
         }
     }
 
@@ -162,6 +224,39 @@ namespace Syllogisms {
         }
     }
 
+    public class Disjs : Goal {
+        private Goal[] goals;
+        private bool[] done;
+
+        public Disjs(Goal[] goals) {
+            this.goals = goals;
+            this.done = new bool[this.goals.Length];
+        }
+
+        public IEnumerable<Stream> Walk(Stream input) {
+            IEnumerator<Stream>[] streams = new IEnumerator<Stream>[this.goals.Length];
+            for (int i = 0; i < this.done.Length; i++) {
+                this.done[i] = false;
+                streams[i] = this.goals[i].Walk(input).GetEnumerator();
+            }
+
+            int nDone = 0;
+            while (nDone < this.done.Length) {
+                for (int i = 0; i < this.goals.Length; i++) {
+                    if (!this.done[i]) {
+                        bool isDone = !streams[i].MoveNext();
+                        if (isDone) {
+                            this.done[i] = isDone;
+                            nDone++;
+                        } else {
+                            yield return streams[i].Current;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     public class Disj : Goal {
         public Goal a;
         public Goal b;
@@ -169,22 +264,6 @@ namespace Syllogisms {
         public Disj(Goal a, Goal b) {
             this.a = a;
             this.b = b;
-        }
-
-        public static Goal Disjs(Goal[] goals) {
-            if (goals.Length == 0) {
-                return new Eq(Pair.Value("true"), Pair.Value("false"));
-            }
-
-            if (goals.Length == 1) {
-                return goals[0];
-            }
-            Disj disj = new Disj(goals[0], goals[1]);
-            int i = 2;
-            for (; i < goals.Length; i++) {
-                disj = new Disj(disj, goals[i]);
-            }
-            return disj;
         }
 
         public IEnumerable<Stream> Walk (Stream input) {
@@ -214,21 +293,28 @@ namespace Syllogisms {
         private class LazyRelationGoal : Goal {
             private Relation relation;
             private Pair[] variables;
-            public LazyRelationGoal(Relation relation, Pair[] variables) {
+            private bool rules;
+
+            public LazyRelationGoal(Relation relation, Pair[] variables, bool rules=true) {
                 this.relation = relation;
                 this.variables = variables;
+                this.rules = rules;
             }
 
             public IEnumerable<Stream> Walk (Stream input) {
-                Goal goal = this.relation.GetGoal(this.variables);
-
-                foreach (Stream stream in goal.Walk(input)) {
-                    yield return stream;
+                // Check the facts
+                foreach (Pair[] fact in this.relation.facts) {
+                    Stream output = input.AddAssociationsSafe(this.variables, fact);
+                    if (output != null) {
+                        yield return output;
+                    }
                 }
 
-                foreach (Rule rule in this.relation.rules) {
-                    foreach (Stream stream in rule.GetGoal(this.variables).Walk(input)) {
-                        yield return stream;
+                if (this.rules) {
+                    foreach (Rule rule in this.relation.rules) {
+                        foreach (Stream stream in rule.GetGoal(this.variables).Walk(input)) {
+                            yield return stream;
+                        }
                     }
                 }
             }
@@ -257,23 +343,15 @@ namespace Syllogisms {
 
         public void RemoveFact(string[] fact) {
             for (int i = 0; i < this.facts.Count; i++) {
-                if (!this.FactsMatch(fact, this.facts[i])) {
+                if (this.FactsMatch(fact, this.facts[i])) {
                     this.facts.RemoveAt(i);
                     i--;
                 }
             }
         }
 
-        private Goal GetLinewiseGoal(Pair[] variables, Pair[] fact) {
-            Eq[] eqs = new Eq[variables.Length];
-            for (int i = 0; i < variables.Length; i++) {
-                eqs[i] = new Eq(variables[i], fact[i]);
-            }
-            return Conj.Conjs(eqs);
-        }
-
-        public Goal Query(Pair[] variables) {
-            return new LazyRelationGoal(this, variables);
+        public Goal Query(Pair[] variables, bool rules=true) {
+            return new LazyRelationGoal(this, variables, rules);
         }
 
         private bool CheckRecursiveRules(Rule rule) {
@@ -300,13 +378,6 @@ namespace Syllogisms {
             this.rules.Add(rule);
         }
 
-        public Goal GetGoal(Pair[] variables) {
-            Goal[] lineWise = new Goal[this.facts.Count];
-            for (int i = 0; i < this.facts.Count; i++) {
-                lineWise[i] = this.GetLinewiseGoal(variables, this.facts[i]);
-            }
-            return Disj.Disjs(lineWise);
-        }
     }
 
     public class Rule {
@@ -331,15 +402,20 @@ namespace Syllogisms {
 
         public Goal GetGoal(Pair[] variables) {
             List<Goal> goals = new List<Goal>();
-            for (int i = 0; i < variables.Length; i++) {
-                goals.Add(new Eq(variables[i], this.vars[i]));
-            }
+            goals.Add(new Eqs(variables, this.vars));
 
             foreach (Goal condition in this.conditions) {
                 goals.Add(condition);
             }
 
             return Conj.Conjs(goals.ToArray());
+        }
+
+        public bool IsTrue(Pair[] variables) {
+            foreach (Stream stream in this.GetGoal(variables).Walk(new Stream())) {
+                return true;
+            }
+            return false;
         }
 
         private Pair[] SaltVars(Pair[] vars) {
@@ -354,6 +430,20 @@ namespace Syllogisms {
             }
             return output;
         }
+
+        private class RuleGoal : Goal {
+            Rule rule;
+            Pair[] variables;
+
+            public RuleGoal(Pair[] variables, Rule rule) {
+                this.variables = variables;
+                this.rule = rule;
+            }
+
+            public IEnumerable<Stream> Walk(Stream input) {
+                yield return null;
+            }
+        }
     }
 
     public class Action {
@@ -366,7 +456,7 @@ namespace Syllogisms {
                 Pair payloadPair = Pair.Value(this.payloads[i]);
                 goals[i] = new Conj(this.rules[i].GetGoal(vars), new Eq(outKey, payloadPair));
             }
-            return Disj.Disjs(goals);
+            return new Disjs(goals);
         }
 
         public void AddPayload(Rule rule, string payload) {

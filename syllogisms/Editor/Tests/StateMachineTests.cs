@@ -8,6 +8,21 @@ using Syllogisms;
 
 public class StateMachineTests {
     [Test]
+    public void ClaimTest() {
+        StateMachine sm = new StateMachine();
+        sm.ReadFile(
+            "+ condition a is true\n" +
+            "+ condition b is \"true\"\n" +
+            "+ condition b is \"false\"\n" +
+            "+ condition b is \"neat\"\n"
+        );
+        Assert.IsTrue(sm.IsTrue("condition a is true"));
+        Assert.IsTrue(sm.IsTrue("condition b is \"true\""));
+        Assert.IsTrue(sm.IsTrue("condition b is \"false\""));
+        Assert.IsTrue(sm.IsTrue("condition b is \"neat\""));
+    }
+
+    [Test]
     public void TestConditionalClaim() {
         StateMachine sm = new StateMachine();
         sm.ReadFile(

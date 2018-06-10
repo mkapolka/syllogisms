@@ -144,7 +144,7 @@ public class uKanrenTests {
             {
                 {"a", "hello"}
             }
-        }, r.GetGoal(new Pair[]{Pair.Variable("a")}));
+        }, r.Query(new Pair[]{Pair.Variable("a")}));
 
         r.AddFact(new string[]{"dumbo"});
         AssertResults(new string[,,] {
@@ -154,7 +154,7 @@ public class uKanrenTests {
             {
                 {"a", "dumbo"}
             }
-        }, r.GetGoal(new Pair[]{Pair.Variable("a")}));
+        }, r.Query(new Pair[]{Pair.Variable("a")}));
     }
 
     [Test]
@@ -171,7 +171,7 @@ public class uKanrenTests {
                 {"a", "mr"},
                 {"b", "happy"}
             }
-        }, r.GetGoal(new Pair[]{Pair.Variable("a"), Pair.Variable("b")}));
+        }, r.Query(new Pair[]{Pair.Variable("a"), Pair.Variable("b")}));
     }
 
     [Test]
@@ -311,6 +311,27 @@ public class uKanrenTests {
                 {"b", null}
             }
         }, rule.GetGoal(new Pair[]{Pair.Variable("a"), Pair.Variable("b")}));
+    }
+
+    [Test]
+    public void RulePartiallyBoundTest() {
+        Relation r1 = new Relation();
+        r1.AddFact(new string[]{"chimpy"});
+        Pair[] args = new Pair[]{Pair.Variable("a"), Pair.Variable("b")};
+        Rule rule = new Rule(args);
+
+        rule.AddCondition(r1, new Pair[]{Pair.Variable("a")});
+
+        AssertResults(new string[,,] {
+            {
+                {"b", null}
+            }
+        }, rule.GetGoal(new Pair[]{Pair.Value("chimpy"), Pair.Variable("b")}));
+
+        foreach (Stream stream in rule.GetGoal(new Pair[]{Pair.Value("bongo"), Pair.Variable("b")}).Walk(new Stream())) {
+            Pair bong = stream.Walk(new Pair("bongo", false));
+        }
+        AssertResults(new string[0,0,0], rule.GetGoal(new Pair[]{Pair.Value("bongo"), Pair.Variable("b")}));
     }
 
     /*[Test]
