@@ -8,10 +8,8 @@ using Syllogisms;
 
 public class uKanrenTests {
 
-    public static void AssertResults(string[,,] values, Goal goal, Stream stream = null) {
-        if (stream == null) {
-            stream = new Stream();
-        }
+    public static void AssertResults(string[,,] values, Goal goal) {
+        Stream stream = new Stream();
         int results = 0;
         foreach (Stream walkStream in goal.Walk(stream)) {
             bool anyMatch = false;

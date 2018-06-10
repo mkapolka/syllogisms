@@ -46,19 +46,50 @@ namespace Syllogisms {
         }
     }
 
-    public class Stream {
-        public Dictionary<string, Pair> replacements;
+    public struct Stream {
+        private struct Entry {
+            public string key;
+            public Pair value;
 
-        public Stream(Dictionary<string, Pair> oldReplacements) {
-            this.replacements = new Dictionary<string, Pair>(oldReplacements);
+            public Entry (string key, Pair value) {
+                this.key = key;
+                this.value = value;
+            }
         }
 
-        public Stream() {
-            this.replacements = new Dictionary<string, Pair>();
+        private Entry[] entries;
+
+        private Stream(Stream parent, int extraCapacity) {
+            if (parent.entries != null) {
+                this.entries = new Entry[parent.entries.Length + extraCapacity];
+                System.Array.Copy(parent.entries, this.entries, parent.entries.Length);
+            } else {
+                this.entries = new Entry[extraCapacity];
+            }
         }
 
         public static bool IsVariable(Pair s) {
             return s.isVariable;
+        }
+
+        private Pair GetPair(string key) {
+            if (this.entries == null) throw new System.Exception("No entries!");
+            foreach (Entry entry in this.entries) {
+                if (entry.key == key) {
+                    return entry.value;
+                }
+            }
+            throw new System.Exception("I don't have key " + key);
+        }
+
+        private bool HasKey(string key) {
+            if (this.entries == null) return false;
+            foreach (Entry entry in this.entries) {
+                if (entry.key == key) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public string Walk(string var) {
@@ -73,8 +104,8 @@ namespace Syllogisms {
 
         public Pair Walk(Pair var) {
             if (Stream.IsVariable(var)) {
-                if (this.replacements.ContainsKey(var.key)) {
-                    return this.Walk(this.replacements[var.key]);
+                if (this.HasKey(var.key)) {
+                    return this.Walk(this.GetPair(var.key));
                 }
             }
             return var;
@@ -90,48 +121,29 @@ namespace Syllogisms {
         }
 
         public Stream AddAssociation(string key, Pair value) {
-            Stream output = new Stream(this.replacements);
-            output.replacements.Add(key, value);
+            Stream output = new Stream(this, 1);
+            int nMyEntries = this.entries != null ? this.entries.Length : 0;
+            output.entries[nMyEntries] = new Entry(key, value);
             return output;
-        }
-
-        private void AddAssociationInPlace(string key, Pair value) {
-            this.replacements.Add(key, value);
         }
 
         public Stream AddAssociations(Pair[] variables, Pair[] values) {
-            Stream output = new Stream(this.replacements);
+            int extraEntries = 0;
             for (int i = 0; i < variables.Length; i++) {
                 if (variables[i].isVariable) {
-                    output.replacements.Add(variables[i].key, values[i]);
+                    extraEntries += 1;
+                }
+            }
+            Stream output = new Stream(this, extraEntries);
+            int j = 0;
+            int nMyEntries = this.entries != null ? this.entries.Length : 0;
+            for (int i = 0; i < variables.Length; i++) {
+                if (variables[i].isVariable) {
+                    output.entries[nMyEntries + j] = new Entry(variables[i].key, values[i]);
+                    j++;
                 }
             }
             return output;
-        }
-
-        public Stream AddAssociationsSafe(Pair[] variables, Pair[] values) {
-            bool willUnify = true;
-            Pair[] walkedVars = new Pair[variables.Length];
-            Pair[] walkedVals = new Pair[values.Length];
-            for (int i = 0; i < variables.Length; i++) {
-                Pair a = this.Walk(variables[i]);
-                Pair b = this.Walk(values[i]);
-                if (a.isVariable) {
-                    walkedVars[i] = a;
-                    walkedVals[i] = b;
-                } else if (b.isVariable) {
-                    walkedVars[i] = b;
-                    walkedVals[i] = a;
-                } else if (a.key != b.key) {
-                    willUnify = false;
-                    break;
-                }
-            }
-            if (willUnify) {
-                return this.AddAssociations(walkedVars, walkedVals);
-            } else {
-                return null;
-            }
         }
     }
 
@@ -149,9 +161,25 @@ namespace Syllogisms {
         }
 
         public IEnumerable<Stream> Walk(Stream input) {
-            Stream output = input.AddAssociationsSafe(this.a, this.b);
-            if (output != null) {
-                yield return output;
+            bool willUnify = true;
+            Pair[] walkedVars = new Pair[this.a.Length];
+            Pair[] walkedVals = new Pair[this.b.Length];
+            for (int i = 0; i < this.a.Length; i++) {
+                Pair a = input.Walk(this.a[i]);
+                Pair b = input.Walk(this.b[i]);
+                if (a.isVariable) {
+                    walkedVars[i] = a;
+                    walkedVals[i] = b;
+                } else if (b.isVariable) {
+                    walkedVars[i] = b;
+                    walkedVals[i] = a;
+                } else if (a.key != b.key) {
+                    willUnify = false;
+                    break;
+                }
+            }
+            if (willUnify) {
+                yield return input.AddAssociations(walkedVars, walkedVals);
             }
         }
     }
@@ -186,7 +214,35 @@ namespace Syllogisms {
         }
 
         public IEnumerable<Stream> Walk(Stream input) {
-            yield return null;
+            return WalkConjs(this.goals, input);
+        }
+
+        public static IEnumerable<Stream> WalkConjs(Goal[] goals, Stream input) {
+            IEnumerator<Stream>[] enumerables = new IEnumerator<Stream>[goals.Length];
+            Stream[] streams = new Stream[goals.Length];
+
+            if (goals.Length == 0) {
+                yield return input;
+            } else {
+                streams[0] = input;
+                enumerables[0] = goals[0].Walk(input).GetEnumerator();
+                int i = 0;
+                bool done = false;
+                while (i >= 0) {
+                    bool more = enumerables[i].MoveNext();
+                    if (more) {
+                        if (i == goals.Length - 1) {
+                            yield return enumerables[i].Current;
+                        } else {
+                            streams[i] = enumerables[i].Current;
+                            enumerables[i+1] = goals[i+1].Walk(streams[i]).GetEnumerator();
+                            i++;
+                        }
+                    } else {
+                        i--;
+                    }
+                }
+            }
         }
     }
 
@@ -197,23 +253,6 @@ namespace Syllogisms {
             this.a = a;
             this.b = b;
         }
-
-        public static Goal Conjs(Goal[] goals) {
-            if (goals.Length == 0) {
-                return new Eq(Pair.Value("true"), Pair.Value("true"));
-            }
-
-            if (goals.Length == 1) {
-                return goals[0];
-            }
-            Conj conj = new Conj(goals[0], goals[1]);
-            int i = 2;
-            for (; i < goals.Length; i++) {
-                conj = new Conj(conj, goals[i]);
-            }
-            return conj;
-        }
-
 
         public IEnumerable<Stream> Walk (Stream input) {
             foreach (Stream streamA in this.a.Walk(input)) {
@@ -304,9 +343,8 @@ namespace Syllogisms {
             public IEnumerable<Stream> Walk (Stream input) {
                 // Check the facts
                 foreach (Pair[] fact in this.relation.facts) {
-                    Stream output = input.AddAssociationsSafe(this.variables, fact);
-                    if (output != null) {
-                        yield return output;
+                    foreach (Stream stream in new Eqs(this.variables, fact).Walk(input)) {
+                        yield return stream;
                     }
                 }
 
@@ -380,7 +418,29 @@ namespace Syllogisms {
 
     }
 
+
     public class Rule {
+        private class RuleGoal : Goal {
+            private Rule rule;
+            private Pair[] vars;
+
+            private Goal eq;
+
+            public RuleGoal(Pair[] vars, Rule rule) {
+                this.vars = vars;
+                this.rule = rule;
+
+                this.eq = new Eqs(vars, rule.vars);
+            }
+
+            public IEnumerable<Stream> Walk(Stream input) {
+                foreach (Stream stream in this.eq.Walk(input)) {
+                    return Conjs.WalkConjs(this.rule.conditions.ToArray(), input);
+                }
+                return Enumerable.Empty<Stream>();
+            }
+        }
+
         private string salt;
         private Pair[] vars;
         private List<Goal> conditions = new List<Goal>();
@@ -408,7 +468,7 @@ namespace Syllogisms {
                 goals.Add(condition);
             }
 
-            return Conj.Conjs(goals.ToArray());
+            return new Conjs(goals.ToArray());
         }
 
         public bool IsTrue(Pair[] variables) {
@@ -429,20 +489,6 @@ namespace Syllogisms {
                 }
             }
             return output;
-        }
-
-        private class RuleGoal : Goal {
-            Rule rule;
-            Pair[] variables;
-
-            public RuleGoal(Pair[] variables, Rule rule) {
-                this.variables = variables;
-                this.rule = rule;
-            }
-
-            public IEnumerable<Stream> Walk(Stream input) {
-                yield return null;
-            }
         }
     }
 
