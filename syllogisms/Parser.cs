@@ -10,7 +10,7 @@ namespace Syllogisms {
         }
 
         public enum LineType {
-            Condition, Claim, Action, Callback, Exclusion, String
+            Condition, Claim, Action, Callback, Exclusion, String, Comment
         }
 
         public struct Binding {
@@ -57,6 +57,9 @@ namespace Syllogisms {
             } else if (line.StartsWith("?")) {
                 output.type = LineType.Exclusion;
                 line = Regex.Replace(line, "^\\? ?", "");
+            } else if (line.StartsWith("//")) {
+                output.type = LineType.Comment;
+                line = Regex.Replace(line, "^// ?", "");
             } else {
                 output.type = LineType.String;
             }

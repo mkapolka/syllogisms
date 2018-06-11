@@ -247,6 +247,10 @@ namespace Syllogisms {
 
         private IEnumerable<Stream> Query(string query) {
             Parser.Binding binding = Parser.GetBinding(query);
+            return this.Query(binding);
+        }
+
+        private IEnumerable<Stream> Query(Parser.Binding binding) {
             Relation relation = this.relations[binding.key];
             Pair[] vars = TokenToPairs(binding.tokens);
             Stream stream = new Stream();
@@ -256,18 +260,27 @@ namespace Syllogisms {
         }
 
         public bool IsTrue(string query) {
+            Parser.Binding binding = Parser.GetBinding(query);
+            return this.IsTrue(binding);
+        }
+
+        public bool IsTrue(Parser.Binding query) {
             foreach (Stream walkStream in this.Query(query)) {
                 return true;
             }
             return false;
         }
-        
-        public string[] GetValues(string query) {
-            Parser.Binding binding = Parser.GetBinding(query);
-            foreach (Stream stream in this.Query(query)) {
+
+        public string[] GetValues(Parser.Binding binding) {
+            foreach (Stream stream in this.Query(binding)) {
                 return this.WalkTokens(binding.tokens, stream);
             }
             return null;
+        }
+        
+        public string[] GetValues(string query) {
+            Parser.Binding binding = Parser.GetBinding(query);
+            return this.GetValues(binding);
         }
     }
 }

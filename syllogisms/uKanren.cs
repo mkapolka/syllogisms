@@ -350,7 +350,7 @@ namespace Syllogisms {
 
                 if (this.rules) {
                     foreach (Rule rule in this.relation.rules) {
-                        foreach (Stream stream in rule.GetGoal(this.variables).Walk(input)) {
+                        foreach (Stream stream in rule.WalkGoal(this.variables, input)) {
                             yield return stream;
                         }
                     }
@@ -469,6 +469,15 @@ namespace Syllogisms {
             }
 
             return new Conjs(goals.ToArray());
+        }
+
+        public IEnumerable<Stream> WalkGoal(Pair[] vars, Stream input) {
+            Goal[] goals = new Goal[1 + this.conditions.Count];
+            goals[0] = new Eqs(vars, this.vars);
+            for (int i = 1; i < this.conditions.Count + 1; i++) {
+                goals[i] = this.conditions[i - 1];
+            }
+            return Conjs.WalkConjs(goals, input);
         }
 
         public bool IsTrue(Pair[] variables) {
